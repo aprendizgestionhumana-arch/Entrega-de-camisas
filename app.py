@@ -222,7 +222,15 @@ if faltantes:
 st.metric("Entregas registradas", len(entregas_df))
 
 termino_busqueda = st.text_input(
-    "Buscar por cédula o código trabajador",.")
+    "Buscar por cédula o código trabajador",
+    placeholder="Ej: 71641330 o 11048",
+)
+
+if termino_busqueda:
+    resultado = buscar_empleado(empleados_df, termino_busqueda)
+
+    if resultado.empty:
+        st.warning("No encontré ningún empleado con ese dato.")
     elif len(resultado) > 1:
         st.warning("Encontré más de un resultado. Revisa la hoja Empleados.")
         st.dataframe(resultado, use_container_width=True)
@@ -232,7 +240,40 @@ termino_busqueda = st.text_input(
         cedula = normalizar_texto(empleado["Cédula"])
         nombre_completo = " ".join([
             normalizar_texto(empleado.get("Nombre", "")),
-"✅ Entregado correctamente")
+            normalizar_texto(empleado.get("Apellido1", "")),
+            normalizar_texto(empleado.get("Apellido2", "")),
+        ]).strip()
+        compania = normalizar_texto(empleado.get("Descripcion", empleado.get("Compañía", "")))
+
+        entrega_existente = ya_fue_entregado(codigo, cedula, entregas_df)
+
+        st.subheader("Datos del empleado")
+        st.write(f"**Compañía:** {compania}")
+        st.write(f"**Nombre completo:** {nombre_completo}")
+        st.write(f"**Cédula:** {cedula}")
+
+        if entrega_existente:
+            st.error("⚠️ Esta persona YA tiene una entrega registrada.")
+            st.write(f"**Fecha de entrega registrada:** {entrega_existente.get('fecha_entrega', '')}")
+            st.write(f"**Registrado por:** {entrega_existente.get('usuario_registra', '')}")
+        else:
+            observacion = st.text_area("Observación", placeholder="Opcional")
+            if st.button("Registrar entrega", type="primary"):
+                entregas_actualizadas = cargar_entregas()
+                entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
+
+                if entrega_existente_2:
+                    st.error("⚠️ Esta persona acaba de ser registrada por otra persona. Refresca la pantalla.")
+                else:
+                    registrar_entrega(
+                        codigo_trabajador=codigo,
+                        cedula=cedula,
+                        nombre_completo=nombre_completo,
+                        compania=compania,
+                        usuario_registra="Sistema",
+                        observacion=observacion.strip(),
+                    )
+                    st.success("✅ Entregado correctamente")
                     st.balloons()
                     st.cache_data.clear()
                     st.rerun()
