@@ -89,21 +89,33 @@ def cargar_empleados():
 def cargar_entregas():
     ws = get_worksheet(HOJA_ENTREGAS)
     data = ws.get_all_records()
+
+    columnas_esperadas = [
+        "codigo_trabajador",
+        "cedula",
+        "nombre_completo",
+        "compania",
+        "fecha_entrega",
+        "usuario_registra",
+        "observacion",
+    ]
+
     if not data:
-        return pd.DataFrame(columns=[
-            "codigo_trabajador",
-            "cedula",
-            "nombre_completo",
-            "compania",
-            "fecha_entrega",
-            "usuario_registra",
-            "observacion",
-        ])
+        return pd.DataFrame(columns=columnas_esperadas)
+
     df = pd.DataFrame(data)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Si la hoja existe pero tiene encabezados distintos o faltantes,
+    # creamos las columnas faltantes para evitar KeyError.
+    for col in columnas_esperadas:
+        if col not in df.columns:
+            df[col] = ""
+
     for col in ["codigo_trabajador", "cedula"]:
-        if col in df.columns:
-            df[col] = df[col].apply(normalizar_texto)
-    return df
+        df[col] = df[col].apply(normalizar_texto)
+
+    return df[columnas_esperadas]
 
 
 def buscar_empleado(df, termino_busqueda):
@@ -139,19 +151,31 @@ def ya_fue_entregado(codigo_trabajador, cedula, entregas_df):
 
 def asegurar_hoja_entregas():
     spreadsheet = get_spreadsheet()
+    encabezados = [
+        "codigo_trabajador",
+        "cedula",
+        "nombre_completo",
+        "compania",
+        "fecha_entrega",
+        "usuario_registra",
+        "observacion",
+    ]
+
     try:
         ws = spreadsheet.worksheet(HOJA_ENTREGAS)
+        valores = ws.get_all_values()
+
+        if not valores:
+            ws.append_row(encabezados)
+        else:
+            encabezados_actuales = [str(x).strip() for x in valores[0]]
+            if encabezados_actuales != encabezados:
+                ws.clear()
+                ws.append_row(encabezados)
     except gspread.WorksheetNotFound:
         ws = spreadsheet.add_worksheet(title=HOJA_ENTREGAS, rows=1000, cols=10)
-        ws.append_row([
-            "codigo_trabajador",
-            "cedula",
-            "nombre_completo",
-            "compania",
-            "fecha_entrega",
-            "usuario_registra",
-            "observacion",
-        ])
+        ws.append_row(encabezados)
+
     return ws
 
 
