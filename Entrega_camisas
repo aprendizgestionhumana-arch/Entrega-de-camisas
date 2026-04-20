@@ -252,14 +252,9 @@ if termino_busqueda:
         entrega_existente = ya_fue_entregado(codigo, cedula)
 
         st.subheader("Datos del empleado")
-        info1, info2, info3 = st.columns(3)
-        info1.write(f"**Nombre:** {nombre_completo}")
-        info1.write(f"**Cédula:** {cedula}")
-        info1.write(f"**Código trabajador:** {codigo}")
-        info2.write(f"**Compañía:** {compania}")
-        info2.write(f"**Cargo:** {cargo}")
-        info2.write(f"**Ciudad:** {ciudad}")
-        info3.write(f"**Correo:** {email}")
+        st.write(f"**Compañía:** {compania}")
+        st.write(f"**Nombre completo:** {nombre_completo}")
+        st.write(f"**Cédula:** {cedula}")
 
         if entrega_existente:
             _, fecha_entrega, usuario_anterior = entrega_existente
