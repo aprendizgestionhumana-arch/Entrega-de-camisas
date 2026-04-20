@@ -1,0 +1,308 @@
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+st.set_page_config(page_title="Entrega de camisas", page_icon="👕", layout="wide")
+
+DB_PATH = "entregas_camisas.db"
+UPLOAD_DIR = Path("data")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+COLUMNAS_REQUERIDAS = [
+    "Código Trabajador",
+    "Cédula",
+    "Nombre",
+    "Apellido1",
+    "Apellido2",
+    "Compañía",
+    "Descripcion",
+    "Cargo",
+    "Descripción Cargo",
+    "E Mail",
+    "Ciudad Trabajo",
+]
+
+
+# -----------------------------
+# Base de datos
+# -----------------------------
+def get_connection():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entregas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_trabajador TEXT,
+            cedula TEXT,
+            nombre_completo TEXT,
+            compania TEXT,
+            cargo TEXT,
+            fecha_entrega TEXT,
+            usuario_registra TEXT,
+            observacion TEXT
+        )
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_codigo
+        ON entregas(codigo_trabajador)
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_cedula
+        ON entregas(cedula)
+        """
+    )
+
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+# -----------------------------
+# Utilidades
+# -----------------------------
+def normalizar_texto(valor):
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    if texto.endswith(".0"):
+        texto = texto[:-2]
+    return texto
+
+
+def validar_columnas(df):
+    faltantes = [col for col in COLUMNAS_REQUERIDAS if col not in df.columns]
+    return faltantes
+
+
+@st.cache_data(show_spinner=False)
+def cargar_archivo(bytes_data, nombre_archivo):
+    extension = nombre_archivo.split(".")[-1].lower()
+
+    if extension == "csv":
+        df = pd.read_csv(bytes_data)
+    elif extension in ["xlsx", "xls"]:
+        df = pd.read_excel(bytes_data)
+    else:
+        raise ValueError("Formato no soportado. Usa CSV o Excel.")
+
+    df.columns = [str(c).strip() for c in df.columns]
+
+    for col in ["Código Trabajador", "Cédula", "Nombre", "Apellido1", "Apellido2"]:
+        if col in df.columns:
+            df[col] = df[col].apply(normalizar_texto)
+
+    return df
+
+
+def buscar_empleado(df, termino_busqueda):
+    termino = normalizar_texto(termino_busqueda)
+    if not termino:
+        return pd.DataFrame()
+
+    resultado = df[
+        (df["Código Trabajador"].astype(str).str.strip() == termino)
+        | (df["Cédula"].astype(str).str.strip() == termino)
+    ].copy()
+
+    return resultado
+
+
+def ya_fue_entregado(codigo_trabajador, cedula):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, fecha_entrega, usuario_registra
+        FROM entregas
+        WHERE codigo_trabajador = ? OR cedula = ?
+        LIMIT 1
+        """,
+        (normalizar_texto(codigo_trabajador), normalizar_texto(cedula)),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def registrar_entrega(codigo_trabajador, cedula, nombre_completo, compania, cargo, usuario_registra, observacion):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO entregas (
+            codigo_trabajador,
+            cedula,
+            nombre_completo,
+            compania,
+            cargo,
+            fecha_entrega,
+            usuario_registra,
+            observacion
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalizar_texto(codigo_trabajador),
+            normalizar_texto(cedula),
+            nombre_completo,
+            compania,
+            cargo,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            usuario_registra,
+            observacion,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def obtener_entregas():
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM entregas ORDER BY fecha_entrega DESC",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+# -----------------------------
+# Interfaz
+# -----------------------------
+st.title("👕 Control de entrega de camisas")
+st.caption("Evita duplicados buscando por cédula o código de trabajador.")
+
+with st.sidebar:
+    st.header("1. Cargar base de empleados")
+    archivo = st.file_uploader(
+        "Sube tu archivo Excel o CSV",
+        type=["xlsx", "xls", "csv"],
+        help="Debe contener al menos las columnas clave para buscar y registrar la entrega.",
+    )
+
+    st.header("2. Datos del registro")
+    usuario_registra = st.text_input("Nombre de quien entrega", placeholder="Ej: Estefany Molina")
+
+if archivo is None:
+    st.info("Primero sube la base de empleados para iniciar.")
+    st.stop()
+
+try:
+    empleados_df = cargar_archivo(archivo, archivo.name)
+except Exception as e:
+    st.error(f"No pude leer el archivo: {e}")
+    st.stop()
+
+faltantes = validar_columnas(empleados_df)
+if faltantes:
+    st.error("Al archivo le faltan estas columnas obligatorias:")
+    st.write(faltantes)
+    st.stop()
+
+col1, col2 = st.columns([2, 1])
+with col1:
+    termino_busqueda = st.text_input(
+        "Buscar por cédula o código trabajador",
+        placeholder="Ej: 71641330 o 11048",
+    )
+with col2:
+    st.metric("Empleados cargados", len(empleados_df))
+
+if termino_busqueda:
+    resultado = buscar_empleado(empleados_df, termino_busqueda)
+
+    if resultado.empty:
+        st.warning("No encontré ningún empleado con ese dato.")
+    elif len(resultado) > 1:
+        st.warning("Encontré más de un resultado. Revisa la base porque debería ser único.")
+        st.dataframe(resultado, use_container_width=True)
+    else:
+        empleado = resultado.iloc[0]
+        codigo = normalizar_texto(empleado["Código Trabajador"])
+        cedula = normalizar_texto(empleado["Cédula"])
+        nombre_completo = " ".join(
+            [
+                normalizar_texto(empleado.get("Nombre", "")),
+                normalizar_texto(empleado.get("Apellido1", "")),
+                normalizar_texto(empleado.get("Apellido2", "")),
+            ]
+        ).strip()
+        compania = normalizar_texto(empleado.get("Descripcion", empleado.get("Compañía", "")))
+        cargo = normalizar_texto(empleado.get("Descripción Cargo", empleado.get("Cargo", "")))
+        email = normalizar_texto(empleado.get("E Mail", ""))
+        ciudad = normalizar_texto(empleado.get("Ciudad Trabajo", ""))
+
+        entrega_existente = ya_fue_entregado(codigo, cedula)
+
+        st.subheader("Datos del empleado")
+        info1, info2, info3 = st.columns(3)
+        info1.write(f"**Nombre:** {nombre_completo}")
+        info1.write(f"**Cédula:** {cedula}")
+        info1.write(f"**Código trabajador:** {codigo}")
+        info2.write(f"**Compañía:** {compania}")
+        info2.write(f"**Cargo:** {cargo}")
+        info2.write(f"**Ciudad:** {ciudad}")
+        info3.write(f"**Correo:** {email}")
+
+        if entrega_existente:
+            _, fecha_entrega, usuario_anterior = entrega_existente
+            st.error("⚠️ Esta persona YA tiene una entrega registrada.")
+            st.write(f"**Fecha de entrega registrada:** {fecha_entrega}")
+            st.write(f"**Registrado por:** {usuario_anterior}")
+        else:
+            with st.form("form_registro_entrega"):
+                observacion = st.text_area("Observación", placeholder="Opcional")
+                enviar = st.form_submit_button("Registrar entrega")
+
+                if enviar:
+                    if not usuario_registra.strip():
+                        st.warning("Debes escribir el nombre de quien entrega.")
+                    else:
+                        try:
+                            registrar_entrega(
+                                codigo_trabajador=codigo,
+                                cedula=cedula,
+                                nombre_completo=nombre_completo,
+                                compania=compania,
+                                cargo=cargo,
+                                usuario_registra=usuario_registra.strip(),
+                                observacion=observacion.strip(),
+                            )
+                            st.success("✅ Entrega registrada correctamente.")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ Esta entrega ya estaba registrada. Se bloqueó el duplicado.")
+
+st.divider()
+st.subheader("Histórico de entregas")
+historico = obtener_entregas()
+
+if historico.empty:
+    st.caption("Aún no hay entregas registradas.")
+else:
+    st.dataframe(historico, use_container_width=True)
+
+    csv = historico.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "Descargar histórico en CSV",
+        data=csv,
+        file_name="historico_entregas_camisas.csv",
+        mime="text/csv",
+    )
