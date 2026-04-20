@@ -221,9 +221,13 @@ if faltantes:
 
 st.metric("Entregas registradas", len(entregas_df))
 
+if "termino_busqueda" not in st.session_state:
+    st.session_state.termino_busqueda = ""
+
 termino_busqueda = st.text_input(
     "Buscar por cédula o código trabajador",
     placeholder="Ej: 71641330 o 11048",
+    key="termino_busqueda",
 )
 
 if termino_busqueda:
@@ -273,6 +277,7 @@ if termino_busqueda:
                         usuario_registra="Sistema",
                         observacion=observacion.strip(),
                     )
+                    st.session_state.termino_busqueda = ""
                     st.success("✅ Entregado correctamente")
                     st.balloons()
                     st.cache_data.clear()
