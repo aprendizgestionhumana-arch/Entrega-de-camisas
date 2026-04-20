@@ -1,15 +1,24 @@
-import sqlite3
+import json
 from datetime import datetime
-from pathlib import Path
 
+import gspread
 import pandas as pd
 import streamlit as st
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Entrega de camisas", page_icon="👕", layout="wide")
 
-DB_PATH = "entregas_camisas.db"
-UPLOAD_DIR = Path("data")
-UPLOAD_DIR.mkdir(exist_ok=True)
+# =========================
+# CONFIGURA ESTO
+# =========================
+SPREADSHEET_ID = "1o4J-MGyQ6GjJ_5UAZfJniqx4k-Rpl5LHGIvV64S3DzU"
+HOJA_EMPLEADOS = "Empleados"
+HOJA_ENTREGAS = "Entregas"
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 COLUMNAS_REQUERIDAS = [
     "Código Trabajador",
@@ -19,64 +28,35 @@ COLUMNAS_REQUERIDAS = [
     "Apellido2",
     "Compañía",
     "Descripcion",
-    "Cargo",
-    "Descripción Cargo",
-    "E Mail",
-    "Ciudad Trabajo",
 ]
 
 
-# -----------------------------
-# Base de datos
-# -----------------------------
-def get_connection():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+# =========================
+# CONEXION GOOGLE SHEETS
+# =========================
+@st.cache_resource
+
+def get_gspread_client():
+    service_account_info = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 
-def init_db():
-    conn = get_connection()
-    cur = conn.cursor()
+@st.cache_resource
 
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS entregas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            codigo_trabajador TEXT,
-            cedula TEXT,
-            nombre_completo TEXT,
-            compania TEXT,
-            cargo TEXT,
-            fecha_entrega TEXT,
-            usuario_registra TEXT,
-            observacion TEXT
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_codigo
-        ON entregas(codigo_trabajador)
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_cedula
-        ON entregas(cedula)
-        """
-    )
-
-    conn.commit()
-    conn.close()
+def get_spreadsheet():
+    client = get_gspread_client()
+    return client.open_by_key(SPREADSHEET_ID)
 
 
-init_db()
+def get_worksheet(nombre_hoja):
+    spreadsheet = get_spreadsheet()
+    return spreadsheet.worksheet(nombre_hoja)
 
 
-# -----------------------------
-# Utilidades
-# -----------------------------
+# =========================
+# UTILIDADES
+# =========================
 def normalizar_texto(valor):
     if pd.isna(valor):
         return ""
@@ -91,23 +71,38 @@ def validar_columnas(df):
     return faltantes
 
 
-@st.cache_data(show_spinner=False)
-def cargar_archivo(bytes_data, nombre_archivo):
-    extension = nombre_archivo.split(".")[-1].lower()
-
-    if extension == "csv":
-        df = pd.read_csv(bytes_data)
-    elif extension in ["xlsx", "xls"]:
-        df = pd.read_excel(bytes_data)
-    else:
-        raise ValueError("Formato no soportado. Usa CSV o Excel.")
-
+@st.cache_data(ttl=10)
+def cargar_empleados():
+    ws = get_worksheet(HOJA_EMPLEADOS)
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
     df.columns = [str(c).strip() for c in df.columns]
 
     for col in ["Código Trabajador", "Cédula", "Nombre", "Apellido1", "Apellido2"]:
         if col in df.columns:
             df[col] = df[col].apply(normalizar_texto)
 
+    return df
+
+
+@st.cache_data(ttl=5)
+def cargar_entregas():
+    ws = get_worksheet(HOJA_ENTREGAS)
+    data = ws.get_all_records()
+    if not data:
+        return pd.DataFrame(columns=[
+            "codigo_trabajador",
+            "cedula",
+            "nombre_completo",
+            "compania",
+            "fecha_entrega",
+            "usuario_registra",
+            "observacion",
+        ])
+    df = pd.DataFrame(data)
+    for col in ["codigo_trabajador", "cedula"]:
+        if col in df.columns:
+            df[col] = df[col].apply(normalizar_texto)
     return df
 
 
@@ -124,95 +119,80 @@ def buscar_empleado(df, termino_busqueda):
     return resultado
 
 
-def ya_fue_entregado(codigo_trabajador, cedula):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id, fecha_entrega, usuario_registra
-        FROM entregas
-        WHERE codigo_trabajador = ? OR cedula = ?
-        LIMIT 1
-        """,
-        (normalizar_texto(codigo_trabajador), normalizar_texto(cedula)),
-    )
-    row = cur.fetchone()
-    conn.close()
-    return row
+def ya_fue_entregado(codigo_trabajador, cedula, entregas_df):
+    codigo = normalizar_texto(codigo_trabajador)
+    ced = normalizar_texto(cedula)
+
+    if entregas_df.empty:
+        return None
+
+    filtro = entregas_df[
+        (entregas_df["codigo_trabajador"].astype(str).str.strip() == codigo)
+        | (entregas_df["cedula"].astype(str).str.strip() == ced)
+    ]
+
+    if filtro.empty:
+        return None
+
+    return filtro.iloc[0].to_dict()
 
 
-def registrar_entrega(codigo_trabajador, cedula, nombre_completo, compania, cargo, usuario_registra, observacion):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO entregas (
-            codigo_trabajador,
-            cedula,
-            nombre_completo,
-            compania,
-            cargo,
-            fecha_entrega,
-            usuario_registra,
-            observacion
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            normalizar_texto(codigo_trabajador),
-            normalizar_texto(cedula),
-            nombre_completo,
-            compania,
-            cargo,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            usuario_registra,
-            observacion,
-        ),
-    )
-    conn.commit()
-    conn.close()
+def asegurar_hoja_entregas():
+    spreadsheet = get_spreadsheet()
+    try:
+        ws = spreadsheet.worksheet(HOJA_ENTREGAS)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=HOJA_ENTREGAS, rows=1000, cols=10)
+        ws.append_row([
+            "codigo_trabajador",
+            "cedula",
+            "nombre_completo",
+            "compania",
+            "fecha_entrega",
+            "usuario_registra",
+            "observacion",
+        ])
+    return ws
 
 
-def obtener_entregas():
-    conn = get_connection()
-    df = pd.read_sql_query(
-        "SELECT * FROM entregas ORDER BY fecha_entrega DESC",
-        conn,
-    )
-    conn.close()
-    return df
+def registrar_entrega(codigo_trabajador, cedula, nombre_completo, compania, usuario_registra, observacion):
+    ws = asegurar_hoja_entregas()
+    ws.append_row([
+        normalizar_texto(codigo_trabajador),
+        normalizar_texto(cedula),
+        nombre_completo,
+        compania,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        usuario_registra,
+        observacion,
+    ])
+    cargar_entregas.clear()
 
 
-# -----------------------------
-# Interfaz
-# -----------------------------
+# =========================
+# UI
+# =========================
 st.title("👕 Control de entrega de camisas")
-st.caption("Evita duplicados buscando por cédula o código de trabajador.")
+st.caption("Consulta por cédula o código y evita duplicados en la misma hoja compartida.")
 
 with st.sidebar:
-    st.header("1. Cargar base de empleados")
-    archivo = st.file_uploader(
-        "Sube tu archivo Excel o CSV",
-        type=["xlsx", "xls", "csv"],
-        help="Debe contener al menos las columnas clave para buscar y registrar la entrega.",
-    )
-
-    st.header("2. Datos del registro")
+    st.header("Configuración")
     usuario_registra = st.text_input("Nombre de quien entrega", placeholder="Ej: Estefany Molina")
-
-if archivo is None:
-    st.info("Primero sube la base de empleados para iniciar.")
-    st.stop()
+    if st.button("Refrescar datos"):
+        cargar_empleados.clear()
+        cargar_entregas.clear()
+        st.rerun()
 
 try:
-    empleados_df = cargar_archivo(archivo, archivo.name)
+    empleados_df = cargar_empleados()
+    entregas_df = cargar_entregas()
 except Exception as e:
-    st.error(f"No pude leer el archivo: {e}")
+    st.error(f"Error conectando con Google Sheets: {e}")
     st.stop()
 
 faltantes = validar_columnas(empleados_df)
 if faltantes:
-    st.error("Al archivo le faltan estas columnas obligatorias:")
+    st.error("Faltan columnas obligatorias en la hoja de empleados:")
     st.write(faltantes)
     st.stop()
 
@@ -223,7 +203,7 @@ with col1:
         placeholder="Ej: 71641330 o 11048",
     )
 with col2:
-    st.metric("Empleados cargados", len(empleados_df))
+    st.metric("Entregas registradas", len(entregas_df))
 
 if termino_busqueda:
     resultado = buscar_empleado(empleados_df, termino_busqueda)
@@ -231,25 +211,20 @@ if termino_busqueda:
     if resultado.empty:
         st.warning("No encontré ningún empleado con ese dato.")
     elif len(resultado) > 1:
-        st.warning("Encontré más de un resultado. Revisa la base porque debería ser único.")
+        st.warning("Encontré más de un resultado. Revisa la hoja Empleados.")
         st.dataframe(resultado, use_container_width=True)
     else:
         empleado = resultado.iloc[0]
         codigo = normalizar_texto(empleado["Código Trabajador"])
         cedula = normalizar_texto(empleado["Cédula"])
-        nombre_completo = " ".join(
-            [
-                normalizar_texto(empleado.get("Nombre", "")),
-                normalizar_texto(empleado.get("Apellido1", "")),
-                normalizar_texto(empleado.get("Apellido2", "")),
-            ]
-        ).strip()
+        nombre_completo = " ".join([
+            normalizar_texto(empleado.get("Nombre", "")),
+            normalizar_texto(empleado.get("Apellido1", "")),
+            normalizar_texto(empleado.get("Apellido2", "")),
+        ]).strip()
         compania = normalizar_texto(empleado.get("Descripcion", empleado.get("Compañía", "")))
-        cargo = normalizar_texto(empleado.get("Descripción Cargo", empleado.get("Cargo", "")))
-        email = normalizar_texto(empleado.get("E Mail", ""))
-        ciudad = normalizar_texto(empleado.get("Ciudad Trabajo", ""))
 
-        entrega_existente = ya_fue_entregado(codigo, cedula)
+        entrega_existente = ya_fue_entregado(codigo, cedula, entregas_df)
 
         st.subheader("Datos del empleado")
         st.write(f"**Compañía:** {compania}")
@@ -257,10 +232,9 @@ if termino_busqueda:
         st.write(f"**Cédula:** {cedula}")
 
         if entrega_existente:
-            _, fecha_entrega, usuario_anterior = entrega_existente
             st.error("⚠️ Esta persona YA tiene una entrega registrada.")
-            st.write(f"**Fecha de entrega registrada:** {fecha_entrega}")
-            st.write(f"**Registrado por:** {usuario_anterior}")
+            st.write(f"**Fecha de entrega registrada:** {entrega_existente.get('fecha_entrega', '')}")
+            st.write(f"**Registrado por:** {entrega_existente.get('usuario_registra', '')}")
         else:
             with st.form("form_registro_entrega"):
                 observacion = st.text_area("Observación", placeholder="Opcional")
@@ -270,34 +244,27 @@ if termino_busqueda:
                     if not usuario_registra.strip():
                         st.warning("Debes escribir el nombre de quien entrega.")
                     else:
-                        try:
+                        # doble validacion antes de guardar
+                        entregas_actualizadas = cargar_entregas()
+                        entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
+
+                        if entrega_existente_2:
+                            st.error("⚠️ Esta persona acaba de ser registrada por otra persona. Refresca la pantalla.")
+                        else:
                             registrar_entrega(
                                 codigo_trabajador=codigo,
                                 cedula=cedula,
                                 nombre_completo=nombre_completo,
                                 compania=compania,
-                                cargo=cargo,
                                 usuario_registra=usuario_registra.strip(),
                                 observacion=observacion.strip(),
                             )
                             st.success("✅ Entrega registrada correctamente.")
                             st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.error("⚠️ Esta entrega ya estaba registrada. Se bloqueó el duplicado.")
 
 st.divider()
 st.subheader("Histórico de entregas")
-historico = obtener_entregas()
-
-if historico.empty:
+if entregas_df.empty:
     st.caption("Aún no hay entregas registradas.")
 else:
-    st.dataframe(historico, use_container_width=True)
-
-    csv = historico.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Descargar histórico en CSV",
-        data=csv,
-        file_name="historico_entregas_camisas.csv",
-        mime="text/csv",
-    )
+    st.dataframe(entregas_df, use_container_width=True)
