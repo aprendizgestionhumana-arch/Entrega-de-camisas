@@ -115,8 +115,6 @@ def asegurar_hoja_entregas():
 
     encabezados_actuales = [str(x).strip() for x in valores[0]]
 
-    # Si faltan columnas, no borramos nada. Solo reescribimos encabezados esperados.
-    # Esto preserva mejor el uso real de la hoja.
     if encabezados_actuales != COLUMNAS_ENTREGAS:
         max_cols = max(len(encabezados_actuales), len(COLUMNAS_ENTREGAS))
         if ws.col_count < max_cols:
@@ -234,9 +232,6 @@ def registrar_entrega(
 if "termino_busqueda" not in st.session_state:
     st.session_state.termino_busqueda = ""
 
-if "observacion" not in st.session_state:
-    st.session_state.observacion = ""
-
 if "flash_ok" not in st.session_state:
     st.session_state.flash_ok = False
 
@@ -246,16 +241,9 @@ if "flash_msg" not in st.session_state:
 if "limpiar_busqueda" not in st.session_state:
     st.session_state.limpiar_busqueda = False
 
-if "limpiar_observacion" not in st.session_state:
-    st.session_state.limpiar_observacion = False
-
 if st.session_state.limpiar_busqueda:
     st.session_state.termino_busqueda = ""
     st.session_state.limpiar_busqueda = False
-
-if st.session_state.limpiar_observacion:
-    st.session_state.observacion = ""
-    st.session_state.limpiar_observacion = False
 
 
 # =========================================================
@@ -328,14 +316,7 @@ if termino_busqueda:
             st.error("⚠️ Esta persona YA tiene una entrega registrada.")
             st.write(f"**Fecha registrada:** {entrega_existente.get('fecha_entrega', '')}")
         else:
-            st.session_state.observacion = st.text_area(
-                "Observación",
-                placeholder="Opcional",
-                key="observacion",
-            )
-
             if st.button("Registrar entrega", type="primary", width="stretch"):
-                # Relectura directa antes de guardar para reducir riesgo de duplicado
                 entregas_actualizadas = leer_entregas_directo()
                 entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
 
@@ -348,7 +329,6 @@ if termino_busqueda:
                             cedula=cedula,
                             nombre_completo=nombre_completo,
                             compania=compania,
-                            observacion=st.session_state.observacion,
                         )
 
                         cargar_entregas.clear()
@@ -357,7 +337,6 @@ if termino_busqueda:
                         st.session_state.flash_ok = True
                         st.session_state.flash_msg = "✅ Entregado correctamente"
                         st.session_state.limpiar_busqueda = True
-                        st.session_state.limpiar_observacion = True
                         st.rerun()
                     except Exception as e:
                         st.error(f"No pude registrar la entrega: {e}")
