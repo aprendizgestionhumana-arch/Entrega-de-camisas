@@ -22,11 +22,6 @@ SPREADSHEET_ID = "1o4J-MGyQ6GjJ_5UAZfJniqx4k-Rpl5LHGIvV64S3DzU"
 HOJA_EMPLEADOS = "Empleados"
 HOJA_ENTREGAS = "Entregas"
 
-# Si subes un logo al repo, por ejemplo "logo_noel.png",
-# cambia esta variable a True.
-MOSTRAR_LOGO = False
-RUTA_LOGO = "logo_noel.png"
-
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
@@ -271,75 +266,57 @@ st.markdown(
         font-size: 2rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
-        text-align: center;
-        color: #7a1f1f;
     }
-
     .subtle-text {
-        color: #5c5c5c;
+        color: #666;
         margin-bottom: 1rem;
-        text-align: center;
     }
-
     .employee-card {
-        border: 2px solid #f3d6a4;
-        border-radius: 20px;
-        padding: 24px;
-        background: linear-gradient(180deg, #fffdf8 0%, #fff3d9 100%);
-        box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-        margin-top: 0.8rem;
+        border: 1px solid #e8e8e8;
+        border-radius: 18px;
+        padding: 22px;
+        background: linear-gradient(180deg, #fffdf7 0%, #fff8e7 100%);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        margin-top: 0.5rem;
         margin-bottom: 1rem;
     }
-
     .employee-company {
         font-size: 0.95rem;
-        font-weight: 800;
-        color: #8b5e00;
+        font-weight: 700;
+        color: #7a4b00;
         text-transform: uppercase;
+        letter-spacing: 0.3px;
         margin-bottom: 0.6rem;
     }
-
     .employee-name {
-        font-size: 1.9rem;
-        font-weight: 900;
+        font-size: 1.6rem;
+        font-weight: 800;
         color: #1f1f1f;
-        line-height: 1.15;
-        margin-bottom: 0.5rem;
+        line-height: 1.2;
+        margin-bottom: 0.6rem;
     }
-
     .employee-id {
-        font-size: 1.15rem;
+        font-size: 1.1rem;
         color: #333;
+        margin-bottom: 0;
     }
-
     .status-ok {
-        padding: 1rem;
-        border-radius: 14px;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
         background: #eefaf0;
-        border: 1px solid #b8e0c2;
+        border: 1px solid #c9ebd0;
         color: #166534;
-        font-weight: 800;
-        text-align: center;
+        font-weight: 700;
         margin-bottom: 1rem;
     }
-
     .status-bad {
-        padding: 1rem;
-        border-radius: 14px;
-        background: #fff1f1;
-        border: 1px solid #efb7b7;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        background: #fff3f3;
+        border: 1px solid #f0c7c7;
         color: #991b1b;
-        font-weight: 800;
-        text-align: center;
+        font-weight: 700;
         margin-bottom: 1rem;
-    }
-
-    .big-search-label {
-        font-size: 1.15rem;
-        font-weight: 800;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-        color: #7a1f1f;
     }
     </style>
     """,
@@ -350,15 +327,7 @@ st.markdown(
 # =========================================================
 # UI
 # =========================================================
-if MOSTRAR_LOGO:
-    col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
-    with col_logo2:
-        st.image(RUTA_LOGO, width=180)
-
-st.markdown(
-    '<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>',
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="subtle-text">Busca por cédula o código de trabajador y registra la entrega.</div>',
     unsafe_allow_html=True,
@@ -399,30 +368,11 @@ total_entregados = len(entregas_df)
 pendientes = max(total_empleados - total_entregados, 0)
 
 col1, col2, col3 = st.columns(3)
-col1.metric("👥 Empleados", total_empleados)
-col2.metric("✅ Entregados", total_entregados)
-col3.metric("📦 Pendientes", pendientes)
+col1.metric("Empleados", total_empleados)
+col2.metric("Entregados", total_entregados)
+col3.metric("Pendientes", pendientes)
 
-if entregas_df.empty:
-    st.caption("Aún no hay entregas registradas.")
-else:
-    st.markdown("### Últimos 5 entregados")
-    ultimos_5 = entregas_df.copy().sort_values(
-        by="fecha_entrega",
-        ascending=False,
-        kind="stable",
-    ).head(5)
-
-    columnas_visibles = ["cedula", "nombre_completo", "compania", "fecha_entrega"]
-    columnas_visibles = [c for c in columnas_visibles if c in ultimos_5.columns]
-
-    st.dataframe(
-        ultimos_5[columnas_visibles],
-        width="stretch",
-    )
-
-st.markdown('<div class="big-search-label">Digita la cédula o el código</div>', unsafe_allow_html=True)
-
+st.markdown("### Buscar colaborador")
 termino_busqueda = st.text_input(
     "Buscar por cédula o código trabajador",
     placeholder="Ej: 71641330 o 11048",
