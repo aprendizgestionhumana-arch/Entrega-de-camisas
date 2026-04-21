@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="Entrega de camisas", page_icon="👕", layout="wide")
+st.set_page_config(page_title="Entrega de camisas", page_icon="🍪", layout="wide")
 
 # =========================
 # CONFIGURA ESTO
