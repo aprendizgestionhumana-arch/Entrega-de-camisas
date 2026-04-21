@@ -446,15 +446,15 @@ if termino_busqueda:
                         st.error(f"No pude registrar la entrega: {e}")
 
 st.divider()
+st.subheader("Histórico de entregas")
 
-with st.expander("Ver histórico de entregas"):
-    if entregas_df.empty:
-        st.caption("Aún no hay entregas registradas.")
-    else:
-        historico_mostrar = entregas_df.copy()
-        historico_mostrar = historico_mostrar.sort_values(
-            by="fecha_entrega",
-            ascending=False,
-            kind="stable",
-        )
-        st.dataframe(historico_mostrar, width="stretch")
+if entregas_df.empty:
+    st.caption("Aún no hay entregas registradas.")
+else:
+    historico_mostrar = entregas_df.copy()
+    historico_mostrar = historico_mostrar.sort_values(
+        by="fecha_entrega",
+        ascending=False,
+        kind="stable",
+    )
+    st.dataframe(historico_mostrar, width="stretch")
