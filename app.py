@@ -6,7 +6,6 @@ import gspread
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
-from streamlit_autorefresh import st_autorefresh
 
 
 # =========================================================
@@ -45,12 +44,6 @@ COLUMNAS_ENTREGAS = [
 
 
 # =========================================================
-# AUTOREFRESH SILENCIOSO CADA 15 SEGUNDOS
-# =========================================================
-st_autorefresh(interval=60_000, key="auto_refresh_principal")
-
-
-# =========================================================
 # HELPERS
 # =========================================================
 def normalizar_texto(valor) -> str:
@@ -79,6 +72,18 @@ def compania_desde_fila(fila: pd.Series) -> str:
 
 def validar_columnas_empleados(df: pd.DataFrame) -> List[str]:
     return [c for c in COLUMNAS_EMPLEADOS_REQUERIDAS if c not in df.columns]
+
+
+def es_error_cuota(error: Exception) -> bool:
+    mensaje = str(error).lower()
+    patrones = [
+        "429",
+        "quota",
+        "rate limit",
+        "too many requests",
+        "resource exhausted",
+    ]
+    return any(p in mensaje for p in patrones)
 
 
 # =========================================================
@@ -172,12 +177,12 @@ def leer_entregas_directo() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=8)
+@st.cache_data(ttl=300)
 def cargar_empleados() -> pd.DataFrame:
     return leer_empleados_directo()
 
 
-@st.cache_data(ttl=3)
+@st.cache_data(ttl=15)
 def cargar_entregas() -> pd.DataFrame:
     return leer_entregas_directo()
 
@@ -242,6 +247,9 @@ def registrar_entrega(
 if "termino_busqueda" not in st.session_state:
     st.session_state.termino_busqueda = ""
 
+if "busqueda_confirmada" not in st.session_state:
+    st.session_state.busqueda_confirmada = ""
+
 if "flash_ok" not in st.session_state:
     st.session_state.flash_ok = False
 
@@ -253,6 +261,7 @@ if "limpiar_busqueda" not in st.session_state:
 
 if st.session_state.limpiar_busqueda:
     st.session_state.termino_busqueda = ""
+    st.session_state.busqueda_confirmada = ""
     st.session_state.limpiar_busqueda = False
 
 
@@ -318,6 +327,12 @@ st.markdown(
         font-weight: 700;
         margin-bottom: 1rem;
     }
+    div[data-testid="stTextInput"] input {
+        font-size: 1.35rem !important;
+        padding: 0.9rem 1rem !important;
+        height: 3.2rem !important;
+        border-radius: 14px !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -328,10 +343,6 @@ st.markdown(
 # UI
 # =========================================================
 st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtle-text">Busca por cédula o código de trabajador y registra la entrega.</div>',
-    unsafe_allow_html=True,
-)
 
 if st.session_state.flash_ok:
     st.success(st.session_state.flash_msg or "✅ Entregado")
@@ -340,17 +351,21 @@ if st.session_state.flash_ok:
 
 with st.sidebar:
     st.subheader("Opciones")
-    st.caption("La app se actualiza automáticamente cada 15 segundos.")
+    st.caption("La información se actualiza al buscar, al registrar y con el botón refrescar.")
     if st.button("Refrescar datos", width="stretch"):
         cargar_empleados.clear()
         cargar_entregas.clear()
+        st.session_state.busqueda_confirmada = normalizar_texto(st.session_state.termino_busqueda)
         st.rerun()
 
 try:
     empleados_df = cargar_empleados()
     entregas_df = cargar_entregas()
 except Exception as e:
-    st.error(f"Error conectando con Google Sheets: {e}")
+    if es_error_cuota(e):
+        st.error("Se alcanzó temporalmente el límite de Google Sheets. Espera unos segundos y vuelve a intentar.")
+    else:
+        st.error(f"Error conectando con Google Sheets: {e}")
     st.stop()
 
 if empleados_df.empty:
@@ -364,18 +379,30 @@ if faltantes:
     st.stop()
 
 total_entregados = len(entregas_df)
-st.metric("Entregados", total_entregados)
+st.metric("✅ Entregados", total_entregados)
 
 st.markdown("### Buscar colaborador")
-termino_busqueda = st.text_input(
-    "Buscar por cédula o código trabajador",
-    placeholder="Ej: 71641330 o 11048",
-    key="termino_busqueda",
-    label_visibility="collapsed",
+st.markdown(
+    '<div class="subtle-text">Busca por cédula o código de trabajador y registra la entrega.</div>',
+    unsafe_allow_html=True,
 )
 
-if termino_busqueda:
-    resultado = buscar_empleado(empleados_df, termino_busqueda)
+with st.form("form_busqueda", clear_on_submit=False):
+    termino_ingresado = st.text_input(
+        "Buscar por cédula o código trabajador",
+        placeholder="Ej: 71641330 o 11048",
+        key="termino_busqueda",
+        label_visibility="collapsed",
+    )
+    buscar = st.form_submit_button("Buscar", width="stretch")
+
+if buscar:
+    st.session_state.busqueda_confirmada = normalizar_texto(termino_ingresado)
+
+termino_activo = normalizar_texto(st.session_state.busqueda_confirmada)
+
+if termino_activo:
+    resultado = buscar_empleado(empleados_df, termino_activo)
 
     if resultado.empty:
         st.warning("No encontré ningún colaborador con ese dato.")
@@ -415,13 +442,13 @@ if termino_busqueda:
             )
 
             if st.button("Registrar entrega", type="primary", width="stretch"):
-                entregas_actualizadas = leer_entregas_directo()
-                entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
+                try:
+                    entregas_actualizadas = leer_entregas_directo()
+                    entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
 
-                if entrega_existente_2:
-                    st.error("⚠️ Esta persona acaba de ser registrada por otra persona.")
-                else:
-                    try:
+                    if entrega_existente_2:
+                        st.error("⚠️ Esta persona acaba de ser registrada por otra persona.")
+                    else:
                         registrar_entrega(
                             codigo_trabajador=codigo,
                             cedula=cedula,
@@ -436,7 +463,11 @@ if termino_busqueda:
                         st.session_state.flash_msg = "✅ Entregado"
                         st.session_state.limpiar_busqueda = True
                         st.rerun()
-                    except Exception as e:
+
+                except Exception as e:
+                    if es_error_cuota(e):
+                        st.error("Se alcanzó temporalmente el límite de Google Sheets. Espera unos segundos y vuelve a intentar.")
+                    else:
                         st.error(f"No pude registrar la entrega: {e}")
 
 st.divider()
