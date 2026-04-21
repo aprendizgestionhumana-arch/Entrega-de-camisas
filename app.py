@@ -45,7 +45,7 @@ COLUMNAS_ENTREGAS = [
 
 
 # =========================================================
-# AUTOREFRESH SILENCIOSO CADA 10 SEGUNDOS
+# AUTOREFRESH SILENCIOSO CADA 15 SEGUNDOS
 # =========================================================
 st_autorefresh(interval=15_000, key="auto_refresh_principal")
 
@@ -257,10 +257,81 @@ if st.session_state.limpiar_busqueda:
 
 
 # =========================================================
+# ESTILOS
+# =========================================================
+st.markdown(
+    """
+    <style>
+    .main-title {
+        font-size: 2rem;
+        font-weight: 800;
+        margin-bottom: 0.2rem;
+    }
+    .subtle-text {
+        color: #666;
+        margin-bottom: 1rem;
+    }
+    .employee-card {
+        border: 1px solid #e8e8e8;
+        border-radius: 18px;
+        padding: 22px;
+        background: linear-gradient(180deg, #fffdf7 0%, #fff8e7 100%);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    .employee-company {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #7a4b00;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        margin-bottom: 0.6rem;
+    }
+    .employee-name {
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #1f1f1f;
+        line-height: 1.2;
+        margin-bottom: 0.6rem;
+    }
+    .employee-id {
+        font-size: 1.1rem;
+        color: #333;
+        margin-bottom: 0;
+    }
+    .status-ok {
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        background: #eefaf0;
+        border: 1px solid #c9ebd0;
+        color: #166534;
+        font-weight: 700;
+        margin-bottom: 1rem;
+    }
+    .status-bad {
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        background: #fff3f3;
+        border: 1px solid #f0c7c7;
+        color: #991b1b;
+        font-weight: 700;
+        margin-bottom: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
 # UI
 # =========================================================
-st.title("Entrega Camisetas ¡El sabor de Creer! 🍪⚽")
-st.caption("Busca por cédula o código de trabajador y registra la entrega.")
+st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="subtle-text">Busca por cédula o código de trabajador y registra la entrega.</div>',
+    unsafe_allow_html=True,
+)
 
 if st.session_state.flash_ok:
     st.success(st.session_state.flash_msg or "✅ Entregado")
@@ -269,6 +340,7 @@ if st.session_state.flash_ok:
 
 with st.sidebar:
     st.subheader("Opciones")
+    st.caption("La app se actualiza automáticamente cada 15 segundos.")
     if st.button("Refrescar datos", width="stretch"):
         cargar_empleados.clear()
         cargar_entregas.clear()
@@ -291,12 +363,21 @@ if faltantes:
     st.write(faltantes)
     st.stop()
 
-st.metric("Entregas registradas", len(entregas_df))
+total_empleados = len(empleados_df)
+total_entregados = len(entregas_df)
+pendientes = max(total_empleados - total_entregados, 0)
 
+col1, col2, col3 = st.columns(3)
+col1.metric("Empleados", total_empleados)
+col2.metric("Entregados", total_entregados)
+col3.metric("Pendientes", pendientes)
+
+st.markdown("### Buscar colaborador")
 termino_busqueda = st.text_input(
     "Buscar por cédula o código trabajador",
     placeholder="Ej: 71641330 o 11048",
     key="termino_busqueda",
+    label_visibility="collapsed",
 )
 
 if termino_busqueda:
@@ -316,15 +397,29 @@ if termino_busqueda:
 
         entrega_existente = ya_fue_entregado(codigo, cedula, entregas_df)
 
-        st.subheader("Datos del colaborador")
-        st.write(f"**Compañía:** {compania}")
-        st.write(f"**Nombre completo:** {nombre_completo}")
-        st.write(f"**Cédula:** {cedula}")
+        st.markdown(
+            f"""
+            <div class="employee-card">
+                <div class="employee-company">{compania}</div>
+                <div class="employee-name">{nombre_completo}</div>
+                <div class="employee-id"><strong>Cédula:</strong> {cedula}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         if entrega_existente:
-            st.error("⚠️ Esta persona YA tiene una entrega registrada.")
+            st.markdown(
+                '<div class="status-bad">🔴 Esta persona ya tiene una entrega registrada.</div>',
+                unsafe_allow_html=True,
+            )
             st.write(f"**Fecha registrada:** {entrega_existente.get('fecha_entrega', '')}")
         else:
+            st.markdown(
+                '<div class="status-ok">🟢 Disponible para entregar.</div>',
+                unsafe_allow_html=True,
+            )
+
             if st.button("Registrar entrega", type="primary", width="stretch"):
                 entregas_actualizadas = leer_entregas_directo()
                 entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
@@ -351,15 +446,15 @@ if termino_busqueda:
                         st.error(f"No pude registrar la entrega: {e}")
 
 st.divider()
-st.subheader("Histórico de entregas")
 
-if entregas_df.empty:
-    st.caption("Aún no hay entregas registradas.")
-else:
-    historico_mostrar = entregas_df.copy()
-    historico_mostrar = historico_mostrar.sort_values(
-        by="fecha_entrega",
-        ascending=False,
-        kind="stable",
-    )
-    st.dataframe(historico_mostrar, width="stretch")
+with st.expander("Ver histórico de entregas"):
+    if entregas_df.empty:
+        st.caption("Aún no hay entregas registradas.")
+    else:
+        historico_mostrar = entregas_df.copy()
+        historico_mostrar = historico_mostrar.sort_values(
+            by="fecha_entrega",
+            ascending=False,
+            kind="stable",
+        )
+        st.dataframe(historico_mostrar, width="stretch")
