@@ -47,7 +47,7 @@ COLUMNAS_ENTREGAS = [
 # =========================================================
 # AUTOREFRESH SILENCIOSO CADA 15 SEGUNDOS
 # =========================================================
-st_autorefresh(interval=15_000, key="auto_refresh_principal")
+st_autorefresh(interval=60_000, key="auto_refresh_principal")
 
 
 # =========================================================
