@@ -216,7 +216,6 @@ def registrar_entrega(
     cedula: str,
     nombre_completo: str,
     compania: str,
-    observacion: str,
 ):
     ws = asegurar_hoja_entregas()
     fila = [
@@ -224,8 +223,7 @@ def registrar_entrega(
         normalizar_texto(cedula),
         nombre_completo,
         compania,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        observacion.strip(),
+        datetime.now().strftime("%Y-%m-%d"),
     ]
     ws.append_row(fila)
 
