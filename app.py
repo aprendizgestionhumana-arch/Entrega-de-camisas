@@ -1,16 +1,21 @@
-import json
 from datetime import datetime
+from typing import Dict, List, Optional
 
 import gspread
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="Entrega de camisas", page_icon="🍪", layout="wide")
 
-# =========================
-# CONFIGURA ESTO
-# =========================
+# =========================================================
+# CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="Entrega de camisas",
+    page_icon="👕",
+    layout="centered",
+)
+
 SPREADSHEET_ID = "1o4J-MGyQ6GjJ_5UAZfJniqx4k-Rpl5LHGIvV64S3DzU"
 HOJA_EMPLEADOS = "Empleados"
 HOJA_ENTREGAS = "Entregas"
@@ -20,44 +25,28 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-COLUMNAS_REQUERIDAS = [
+COLUMNAS_EMPLEADOS_REQUERIDAS = [
     "Código Trabajador",
     "Cédula",
     "Nombre",
     "Apellido1",
     "Apellido2",
-    "Compañía",
-    "Descripcion",
+]
+
+COLUMNAS_ENTREGAS = [
+    "codigo_trabajador",
+    "cedula",
+    "nombre_completo",
+    "compania",
+    "fecha_entrega",
+    "observacion",
 ]
 
 
-# =========================
-# CONEXION GOOGLE SHEETS
-# =========================
-@st.cache_resource
-
-def get_gspread_client():
-    service_account_info = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
-    return gspread.authorize(creds)
-
-
-@st.cache_resource
-
-def get_spreadsheet():
-    client = get_gspread_client()
-    return client.open_by_key(SPREADSHEET_ID)
-
-
-def get_worksheet(nombre_hoja):
-    spreadsheet = get_spreadsheet()
-    return spreadsheet.worksheet(nombre_hoja)
-
-
-# =========================
-# UTILIDADES
-# =========================
-def normalizar_texto(valor):
+# =========================================================
+# HELPERS
+# =========================================================
+def normalizar_texto(valor) -> str:
     if pd.isna(valor):
         return ""
     texto = str(valor).strip()
@@ -66,16 +55,87 @@ def normalizar_texto(valor):
     return texto
 
 
-def validar_columnas(df):
-    faltantes = [col for col in COLUMNAS_REQUERIDAS if col not in df.columns]
-    return faltantes
+def nombre_completo_desde_fila(fila: pd.Series) -> str:
+    partes = [
+        normalizar_texto(fila.get("Nombre", "")),
+        normalizar_texto(fila.get("Apellido1", "")),
+        normalizar_texto(fila.get("Apellido2", "")),
+    ]
+    return " ".join([p for p in partes if p]).strip()
 
 
-@st.cache_data(ttl=10)
-def cargar_empleados():
+def compania_desde_fila(fila: pd.Series) -> str:
+    descripcion = normalizar_texto(fila.get("Descripcion", ""))
+    compania = normalizar_texto(fila.get("Compañía", ""))
+    return descripcion or compania
+
+
+def validar_columnas_empleados(df: pd.DataFrame) -> List[str]:
+    return [c for c in COLUMNAS_EMPLEADOS_REQUERIDAS if c not in df.columns]
+
+
+# =========================================================
+# GOOGLE SHEETS
+# =========================================================
+@st.cache_resource
+def get_gspread_client():
+    service_account_info = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(
+        service_account_info,
+        scopes=SCOPES,
+    )
+    return gspread.authorize(creds)
+
+
+@st.cache_resource
+def get_spreadsheet():
+    client = get_gspread_client()
+    return client.open_by_key(SPREADSHEET_ID)
+
+
+def get_worksheet(nombre_hoja: str):
+    spreadsheet = get_spreadsheet()
+    return spreadsheet.worksheet(nombre_hoja)
+
+
+def asegurar_hoja_entregas():
+    spreadsheet = get_spreadsheet()
+
+    try:
+        ws = spreadsheet.worksheet(HOJA_ENTREGAS)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=HOJA_ENTREGAS, rows=2000, cols=10)
+        ws.append_row(COLUMNAS_ENTREGAS)
+        return ws
+
+    valores = ws.get_all_values()
+
+    if not valores:
+        ws.append_row(COLUMNAS_ENTREGAS)
+        return ws
+
+    encabezados_actuales = [str(x).strip() for x in valores[0]]
+
+    # Si faltan columnas, no borramos nada. Solo reescribimos encabezados esperados.
+    # Esto preserva mejor el uso real de la hoja.
+    if encabezados_actuales != COLUMNAS_ENTREGAS:
+        max_cols = max(len(encabezados_actuales), len(COLUMNAS_ENTREGAS))
+        if ws.col_count < max_cols:
+            ws.add_cols(max_cols - ws.col_count)
+        rango = f"A1:{chr(64 + len(COLUMNAS_ENTREGAS))}1"
+        ws.update(rango, [COLUMNAS_ENTREGAS])
+
+    return ws
+
+
+def leer_empleados_directo() -> pd.DataFrame:
     ws = get_worksheet(HOJA_EMPLEADOS)
     data = ws.get_all_records()
+
     df = pd.DataFrame(data)
+    if df.empty:
+        return df
+
     df.columns = [str(c).strip() for c in df.columns]
 
     for col in ["Código Trabajador", "Cédula", "Nombre", "Apellido1", "Apellido2"]:
@@ -85,42 +145,41 @@ def cargar_empleados():
     return df
 
 
-@st.cache_data(ttl=5)
-def cargar_entregas():
-    ws = get_worksheet(HOJA_ENTREGAS)
+def leer_entregas_directo() -> pd.DataFrame:
+    ws = asegurar_hoja_entregas()
     data = ws.get_all_records()
 
-    columnas_esperadas = [
-        "codigo_trabajador",
-        "cedula",
-        "nombre_completo",
-        "compania",
-        "fecha_entrega",
-        "usuario_registra",
-        "observacion",
-    ]
-
     if not data:
-        return pd.DataFrame(columns=columnas_esperadas)
+        return pd.DataFrame(columns=COLUMNAS_ENTREGAS)
 
     df = pd.DataFrame(data)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Si la hoja existe pero tiene encabezados distintos o faltantes,
-    # creamos las columnas faltantes para evitar KeyError.
-    for col in columnas_esperadas:
+    for col in COLUMNAS_ENTREGAS:
         if col not in df.columns:
             df[col] = ""
+
+    df = df[COLUMNAS_ENTREGAS]
 
     for col in ["codigo_trabajador", "cedula"]:
         df[col] = df[col].apply(normalizar_texto)
 
-    return df[columnas_esperadas]
+    return df
 
 
-def buscar_empleado(df, termino_busqueda):
+@st.cache_data(ttl=30)
+def cargar_empleados() -> pd.DataFrame:
+    return leer_empleados_directo()
+
+
+@st.cache_data(ttl=5)
+def cargar_entregas() -> pd.DataFrame:
+    return leer_entregas_directo()
+
+
+def buscar_empleado(df: pd.DataFrame, termino_busqueda: str) -> pd.DataFrame:
     termino = normalizar_texto(termino_busqueda)
-    if not termino:
+    if not termino or df.empty:
         return pd.DataFrame()
 
     resultado = df[
@@ -131,12 +190,16 @@ def buscar_empleado(df, termino_busqueda):
     return resultado
 
 
-def ya_fue_entregado(codigo_trabajador, cedula, entregas_df):
-    codigo = normalizar_texto(codigo_trabajador)
-    ced = normalizar_texto(cedula)
-
+def ya_fue_entregado(
+    codigo_trabajador: str,
+    cedula: str,
+    entregas_df: pd.DataFrame,
+) -> Optional[Dict]:
     if entregas_df.empty:
         return None
+
+    codigo = normalizar_texto(codigo_trabajador)
+    ced = normalizar_texto(cedula)
 
     filtro = entregas_df[
         (entregas_df["codigo_trabajador"].astype(str).str.strip() == codigo)
@@ -149,59 +212,70 @@ def ya_fue_entregado(codigo_trabajador, cedula, entregas_df):
     return filtro.iloc[0].to_dict()
 
 
-def asegurar_hoja_entregas():
-    spreadsheet = get_spreadsheet()
-    encabezados = [
-        "codigo_trabajador",
-        "cedula",
-        "nombre_completo",
-        "compania",
-        "fecha_entrega",
-        "usuario_registra",
-        "observacion",
-    ]
-
-    try:
-        ws = spreadsheet.worksheet(HOJA_ENTREGAS)
-        valores = ws.get_all_values()
-
-        if not valores:
-            ws.append_row(encabezados)
-        else:
-            encabezados_actuales = [str(x).strip() for x in valores[0]]
-            if encabezados_actuales != encabezados:
-                ws.clear()
-                ws.append_row(encabezados)
-    except gspread.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=HOJA_ENTREGAS, rows=1000, cols=10)
-        ws.append_row(encabezados)
-
-    return ws
-
-
-def registrar_entrega(codigo_trabajador, cedula, nombre_completo, compania, usuario_registra, observacion):
+def registrar_entrega(
+    codigo_trabajador: str,
+    cedula: str,
+    nombre_completo: str,
+    compania: str,
+    observacion: str,
+):
     ws = asegurar_hoja_entregas()
-    ws.append_row([
+    fila = [
         normalizar_texto(codigo_trabajador),
         normalizar_texto(cedula),
         nombre_completo,
         compania,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        usuario_registra,
-        observacion,
-    ])
-    cargar_entregas.clear()
+        observacion.strip(),
+    ]
+    ws.append_row(fila)
 
 
-# =========================
+# =========================================================
+# SESSION STATE
+# =========================================================
+if "termino_busqueda" not in st.session_state:
+    st.session_state.termino_busqueda = ""
+
+if "observacion" not in st.session_state:
+    st.session_state.observacion = ""
+
+if "flash_ok" not in st.session_state:
+    st.session_state.flash_ok = False
+
+if "flash_msg" not in st.session_state:
+    st.session_state.flash_msg = ""
+
+if "limpiar_busqueda" not in st.session_state:
+    st.session_state.limpiar_busqueda = False
+
+if "limpiar_observacion" not in st.session_state:
+    st.session_state.limpiar_observacion = False
+
+if st.session_state.limpiar_busqueda:
+    st.session_state.termino_busqueda = ""
+    st.session_state.limpiar_busqueda = False
+
+if st.session_state.limpiar_observacion:
+    st.session_state.observacion = ""
+    st.session_state.limpiar_observacion = False
+
+
+# =========================================================
 # UI
-# =========================
+# =========================================================
 st.title("👕 Control de entrega de camisas")
-st.caption("Consulta por cédula o código y evita duplicados en la misma hoja compartida.")
+st.caption("Busca por cédula o código de trabajador y registra la entrega sin duplicados visibles.")
+
+if st.session_state.flash_ok:
+    st.success(st.session_state.flash_msg or "✅ Entregado correctamente")
+    st.balloons()
+    st.session_state.flash_ok = False
+    st.session_state.flash_msg = ""
 
 with st.sidebar:
-    st.header("Configuración")
-    if st.button("Refrescar datos"):
+    st.subheader("Opciones")
+    if st.button("Refrescar datos", width="stretch"):
         cargar_empleados.clear()
         cargar_entregas.clear()
         st.rerun()
@@ -213,23 +287,17 @@ except Exception as e:
     st.error(f"Error conectando con Google Sheets: {e}")
     st.stop()
 
-faltantes = validar_columnas(empleados_df)
+if empleados_df.empty:
+    st.error(f"La hoja '{HOJA_EMPLEADOS}' está vacía o no se pudo leer.")
+    st.stop()
+
+faltantes = validar_columnas_empleados(empleados_df)
 if faltantes:
     st.error("Faltan columnas obligatorias en la hoja de empleados:")
     st.write(faltantes)
     st.stop()
 
 st.metric("Entregas registradas", len(entregas_df))
-
-if "termino_busqueda" not in st.session_state:
-    st.session_state.termino_busqueda = ""
-
-if "limpiar_busqueda" not in st.session_state:
-    st.session_state.limpiar_busqueda = False
-
-if st.session_state.limpiar_busqueda:
-    st.session_state.termino_busqueda = ""
-    st.session_state.limpiar_busqueda = False
 
 termino_busqueda = st.text_input(
     "Buscar por cédula o código trabajador",
@@ -241,58 +309,72 @@ if termino_busqueda:
     resultado = buscar_empleado(empleados_df, termino_busqueda)
 
     if resultado.empty:
-        st.warning("No encontré ningún empleado con ese dato.")
+        st.warning("No encontré ningún colaborador con ese dato.")
     elif len(resultado) > 1:
-        st.warning("Encontré más de un resultado. Revisa la hoja Empleados.")
+        st.warning("Encontré más de un resultado. Revisa la hoja de empleados.")
         st.dataframe(resultado, width="stretch")
     else:
         empleado = resultado.iloc[0]
-        codigo = normalizar_texto(empleado["Código Trabajador"])
-        cedula = normalizar_texto(empleado["Cédula"])
-        nombre_completo = " ".join([
-            normalizar_texto(empleado.get("Nombre", "")),
-            normalizar_texto(empleado.get("Apellido1", "")),
-            normalizar_texto(empleado.get("Apellido2", "")),
-        ]).strip()
-        compania = normalizar_texto(empleado.get("Descripcion", empleado.get("Compañía", "")))
+        codigo = normalizar_texto(empleado.get("Código Trabajador", ""))
+        cedula = normalizar_texto(empleado.get("Cédula", ""))
+        nombre_completo = nombre_completo_desde_fila(empleado)
+        compania = compania_desde_fila(empleado)
 
         entrega_existente = ya_fue_entregado(codigo, cedula, entregas_df)
 
-        st.subheader("Datos del empleado")
+        st.subheader("Datos del colaborador")
         st.write(f"**Compañía:** {compania}")
         st.write(f"**Nombre completo:** {nombre_completo}")
         st.write(f"**Cédula:** {cedula}")
 
         if entrega_existente:
             st.error("⚠️ Esta persona YA tiene una entrega registrada.")
-            st.write(f"**Fecha de entrega registrada:** {entrega_existente.get('fecha_entrega', '')}")
-            st.write(f"**Registrado por:** {entrega_existente.get('usuario_registra', '')}")
+            st.write(f"**Fecha registrada:** {entrega_existente.get('fecha_entrega', '')}")
         else:
-            observacion = st.text_area("Observación", placeholder="Opcional")
-            if st.button("Registrar entrega", type="primary"):
-                entregas_actualizadas = cargar_entregas()
+            st.session_state.observacion = st.text_area(
+                "Observación",
+                placeholder="Opcional",
+                key="observacion",
+            )
+
+            if st.button("Registrar entrega", type="primary", width="stretch"):
+                # Relectura directa antes de guardar para reducir riesgo de duplicado
+                entregas_actualizadas = leer_entregas_directo()
                 entrega_existente_2 = ya_fue_entregado(codigo, cedula, entregas_actualizadas)
 
                 if entrega_existente_2:
-                    st.error("⚠️ Esta persona acaba de ser registrada por otra persona. Refresca la pantalla.")
+                    st.error("⚠️ Esta persona acaba de ser registrada por otra persona.")
                 else:
-                    registrar_entrega(
-                        codigo_trabajador=codigo,
-                        cedula=cedula,
-                        nombre_completo=nombre_completo,
-                        compania=compania,
-                        usuario_registra="Sistema",
-                        observacion=observacion.strip(),
-                    )
-                    st.session_state.limpiar_busqueda = True
-                    st.success("✅ Entregado correctamente")
-                    st.balloons()
-                    st.cache_data.clear()
-                    st.rerun()
+                    try:
+                        registrar_entrega(
+                            codigo_trabajador=codigo,
+                            cedula=cedula,
+                            nombre_completo=nombre_completo,
+                            compania=compania,
+                            observacion=st.session_state.observacion,
+                        )
+
+                        cargar_entregas.clear()
+                        cargar_empleados.clear()
+
+                        st.session_state.flash_ok = True
+                        st.session_state.flash_msg = "✅ Entregado correctamente"
+                        st.session_state.limpiar_busqueda = True
+                        st.session_state.limpiar_observacion = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No pude registrar la entrega: {e}")
 
 st.divider()
 st.subheader("Histórico de entregas")
+
 if entregas_df.empty:
     st.caption("Aún no hay entregas registradas.")
 else:
-    st.dataframe(entregas_df, width="stretch")
+    historico_mostrar = entregas_df.copy()
+    historico_mostrar = historico_mostrar.sort_values(
+        by="fecha_entrega",
+        ascending=False,
+        kind="stable",
+    )
+    st.dataframe(historico_mostrar, width="stretch")
