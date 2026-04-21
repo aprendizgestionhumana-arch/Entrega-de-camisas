@@ -224,6 +224,13 @@ st.metric("Entregas registradas", len(entregas_df))
 if "termino_busqueda" not in st.session_state:
     st.session_state.termino_busqueda = ""
 
+if "limpiar_busqueda" not in st.session_state:
+    st.session_state.limpiar_busqueda = False
+
+if st.session_state.limpiar_busqueda:
+    st.session_state.termino_busqueda = ""
+    st.session_state.limpiar_busqueda = False
+
 termino_busqueda = st.text_input(
     "Buscar por cédula o código trabajador",
     placeholder="Ej: 71641330 o 11048",
@@ -237,7 +244,7 @@ if termino_busqueda:
         st.warning("No encontré ningún empleado con ese dato.")
     elif len(resultado) > 1:
         st.warning("Encontré más de un resultado. Revisa la hoja Empleados.")
-        st.dataframe(resultado, use_container_width=True)
+        st.dataframe(resultado, width="stretch")
     else:
         empleado = resultado.iloc[0]
         codigo = normalizar_texto(empleado["Código Trabajador"])
@@ -277,7 +284,7 @@ if termino_busqueda:
                         usuario_registra="Sistema",
                         observacion=observacion.strip(),
                     )
-                    st.session_state.termino_busqueda = ""
+                    st.session_state.limpiar_busqueda = True
                     st.success("✅ Entregado correctamente")
                     st.balloons()
                     st.cache_data.clear()
@@ -288,4 +295,4 @@ st.subheader("Histórico de entregas")
 if entregas_df.empty:
     st.caption("Aún no hay entregas registradas.")
 else:
-    st.dataframe(entregas_df, use_container_width=True)
+    st.dataframe(entregas_df, width="stretch")
