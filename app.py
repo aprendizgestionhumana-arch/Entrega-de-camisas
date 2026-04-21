@@ -249,7 +249,7 @@ if st.session_state.limpiar_busqueda:
 # =========================================================
 # UI
 # =========================================================
-st.title("👕 Control de entrega de camisas")
+st.title("🍪¡Entrega Camisetas El Sabor De Creer!")
 st.caption("Busca por cédula o código de trabajador y registra la entrega sin duplicados visibles.")
 
 if st.session_state.flash_ok:
