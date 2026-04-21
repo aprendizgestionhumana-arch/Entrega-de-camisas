@@ -327,7 +327,7 @@ st.markdown(
 # =========================================================
 # UI
 # =========================================================
-st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer!❤️🍪⚽</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="subtle-text">Busca por cédula o código de trabajador y registra la entrega.</div>',
     unsafe_allow_html=True,
