@@ -39,7 +39,6 @@ COLUMNAS_ENTREGAS = [
     "nombre_completo",
     "compania",
     "fecha_entrega",
-    "observacion",
 ]
 
 
