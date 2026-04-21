@@ -368,7 +368,7 @@ total_entregados = len(entregas_df)
 pendientes = max(total_empleados - total_entregados, 0)
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Empleados", total_empleados)
+col1.metric("Colaboradores", total_empleados)
 col2.metric("Entregados", total_entregados)
 col3.metric("Pendientes", pendientes)
 
