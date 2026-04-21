@@ -363,14 +363,8 @@ if faltantes:
     st.write(faltantes)
     st.stop()
 
-total_empleados = len(empleados_df)
 total_entregados = len(entregas_df)
-pendientes = max(total_empleados - total_entregados, 0)
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Colaboradores", total_empleados)
-col2.metric("Entregados", total_entregados)
-col3.metric("Pendientes", pendientes)
+st.metric("Entregados", total_entregados)
 
 st.markdown("### Buscar colaborador")
 termino_busqueda = st.text_input(
