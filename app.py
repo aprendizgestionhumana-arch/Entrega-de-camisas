@@ -254,7 +254,6 @@ st.caption("Busca por cédula o código de trabajador y registra la entrega sin 
 
 if st.session_state.flash_ok:
     st.success(st.session_state.flash_msg or "✅ Entregado correctamente")
-    st.balloons()
     st.session_state.flash_ok = False
     st.session_state.flash_msg = ""
 
