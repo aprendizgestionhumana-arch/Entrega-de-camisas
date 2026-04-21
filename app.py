@@ -250,7 +250,7 @@ if st.session_state.limpiar_busqueda:
 # UI
 # =========================================================
 st.title("🍪¡Entrega Camisetas El Sabor De Creer!🍪")
-st.caption("Busca por cédula o código de trabajador y registra la entrega sin duplicados visibles.")
+st.caption("Busca por cédula o código de trabajador y registra la entrega.")
 
 if st.session_state.flash_ok:
     st.success(st.session_state.flash_msg or "✅ Entregado correctamente")
