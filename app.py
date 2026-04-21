@@ -5,6 +5,7 @@ import gspread
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
+from streamlit_autorefresh import st_autorefresh
 
 
 # =========================================================
@@ -40,6 +41,12 @@ COLUMNAS_ENTREGAS = [
     "compania",
     "fecha_entrega",
 ]
+
+
+# =========================================================
+# AUTOREFRESH SILENCIOSO CADA 10 SEGUNDOS
+# =========================================================
+st_autorefresh(interval=10_000, key="auto_refresh_principal")
 
 
 # =========================================================
@@ -164,12 +171,12 @@ def leer_entregas_directo() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=8)
 def cargar_empleados() -> pd.DataFrame:
     return leer_empleados_directo()
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=3)
 def cargar_entregas() -> pd.DataFrame:
     return leer_entregas_directo()
 
@@ -221,7 +228,7 @@ def registrar_entrega(
         normalizar_texto(cedula),
         nombre_completo,
         compania,
-        datetime.now().strftime("%Y-%m-%d"),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ]
     ws.append_row(fila)
 
@@ -249,11 +256,11 @@ if st.session_state.limpiar_busqueda:
 # =========================================================
 # UI
 # =========================================================
-st.title("Entrega Camisetas ¡El sabor de Creer!🍪⚽")
+st.title("Entrega Camisetas ¡El sabor de Creer! 🍪⚽")
 st.caption("Busca por cédula o código de trabajador y registra la entrega.")
 
 if st.session_state.flash_ok:
-    st.success(st.session_state.flash_msg or "✅ Entregado correctamente")
+    st.success(st.session_state.flash_msg or "✅ Entregado")
     st.session_state.flash_ok = False
     st.session_state.flash_msg = ""
 
@@ -334,7 +341,7 @@ if termino_busqueda:
                         cargar_empleados.clear()
 
                         st.session_state.flash_ok = True
-                        st.session_state.flash_msg = "✅ Entregado correctamente"
+                        st.session_state.flash_msg = "✅ Entregado"
                         st.session_state.limpiar_busqueda = True
                         st.rerun()
                     except Exception as e:
