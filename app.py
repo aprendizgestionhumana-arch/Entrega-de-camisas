@@ -224,12 +224,14 @@ def registrar_entrega(
     compania: str,
 ):
     ws = asegurar_hoja_entregas()
+    fecha_hora_colombia = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M:%S")
+
     fila = [
         normalizar_texto(codigo_trabajador),
         normalizar_texto(cedula),
         nombre_completo,
         compania,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        fecha_hora_colombia,
     ]
     ws.append_row(fila)
 
