@@ -86,6 +86,12 @@ def es_error_cuota(error: Exception) -> bool:
     return any(p in mensaje for p in patrones)
 
 
+def confirmar_busqueda():
+    st.session_state.busqueda_confirmada = normalizar_texto(
+        st.session_state.termino_busqueda
+    )
+
+
 # =========================================================
 # GOOGLE SHEETS
 # =========================================================
@@ -342,7 +348,10 @@ st.markdown(
 # =========================================================
 # UI
 # =========================================================
-st.markdown('<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="main-title">Entrega Camisetas ¡El sabor de Creer! 🍪⚽</div>',
+    unsafe_allow_html=True,
+)
 
 if st.session_state.flash_ok:
     st.success(st.session_state.flash_msg or "✅ Entregado")
@@ -351,11 +360,13 @@ if st.session_state.flash_ok:
 
 with st.sidebar:
     st.subheader("Opciones")
-    st.caption("La información se actualiza al buscar, al registrar y con el botón refrescar.")
+    st.caption("La información se actualiza al presionar Enter, al registrar y con el botón refrescar.")
     if st.button("Refrescar datos", width="stretch"):
         cargar_empleados.clear()
         cargar_entregas.clear()
-        st.session_state.busqueda_confirmada = normalizar_texto(st.session_state.termino_busqueda)
+        st.session_state.busqueda_confirmada = normalizar_texto(
+            st.session_state.termino_busqueda
+        )
         st.rerun()
 
 try:
@@ -387,17 +398,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.form("form_busqueda", clear_on_submit=False):
-    termino_ingresado = st.text_input(
-        "Buscar por cédula o código trabajador",
-        placeholder="Ej: 71641330 o 11048",
-        key="termino_busqueda",
-        label_visibility="collapsed",
-    )
-    buscar = st.form_submit_button("Buscar", width="stretch")
-
-if buscar:
-    st.session_state.busqueda_confirmada = normalizar_texto(termino_ingresado)
+termino_ingresado = st.text_input(
+    "Buscar por cédula o código trabajador",
+    placeholder="Ej: 71641330 o 11048",
+    key="termino_busqueda",
+    label_visibility="collapsed",
+    on_change=confirmar_busqueda,
+)
 
 termino_activo = normalizar_texto(st.session_state.busqueda_confirmada)
 
